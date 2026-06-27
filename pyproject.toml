@@ -1,0 +1,14 @@
+[project]
+name = "file-storage-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "asyncpg>=0.31.0",
+    "bcrypt>=5.0.0",
+    "fastapi[standard]>=0.138.1",
+    "pyjwt>=2.13.0",
+    "redis>=8.0.1",
+    "sqlmodel>=0.0.39",
+]
