@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from database import engine, redis_client, create_db_and_tables
+from database import engine, redis_client, minio_client, create_db_and_tables, MINIO_BUCKET_NAME
 from contextlib import asynccontextmanager
 from asyncio import sleep
 from typing import Final
@@ -7,6 +7,10 @@ from typing import Final
     
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    
+    if not minio_client.bucket_exists(MINIO_BUCKET_NAME):
+        minio_client.make_bucket(MINIO_BUCKET_NAME)
+        
     for attempt in range(10):
         try:
             print(f"Attempt {attempt + 1}")

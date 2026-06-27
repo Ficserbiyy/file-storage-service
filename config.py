@@ -16,11 +16,16 @@ class User(UserBase, table=True):
     files: list["UserFile"] = Relationship(back_populates="user")
 
 class FileCreate(SQLModel):
-    ...
+    filename: str
+    content_type: str
     
 class UserFile(FileCreate, table=True):
     id: int | None = Field(primary_key=True, default=None)
-
+    owner_id: int = Field(foreign_key="user.id")
+    storage_key: str
+    size: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
 class UserCreate(UserBase):
     ''' For User registration '''
     password: str = Field(min_length=6)
@@ -32,6 +37,10 @@ class Settings(BaseSettings):
     DB_HOST: str = "db" 
     DB_NAME: str = "storage"
     REDIS_URL: str = 'redis://redis:6379'
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "admin"
+    MINIO_PASSWORD: str = "password"
+    MINIO_BUCKET_NAME: str = "user-files"
     SECRET_KEY: str = " "
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE: int = 30

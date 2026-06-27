@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "bcrypt>=5.0.0",
     "fastapi[standard]>=0.138.1",
+    "minio>=7.2.20",
     "pyjwt>=2.13.0",
     "redis>=8.0.1",
     "sqlmodel>=0.0.39",
