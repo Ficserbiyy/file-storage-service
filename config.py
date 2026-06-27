@@ -3,6 +3,28 @@ from datetime import datetime, timezone
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Final
 
+
+class UserBase(SQLModel):
+    ''' For User creation '''
+    email: str = Field(unique=True, index=True)
+
+class User(UserBase, table=True):
+    ''' User model '''
+    id: int | None = Field(primary_key=True, default=None)
+    is_active: bool = True
+    hashed_password: str
+    files: list["UserFile"] = Relationship(back_populates="user")
+
+class FileCreate(SQLModel):
+    ...
+    
+class UserFile(FileCreate, table=True):
+    id: int | None = Field(primary_key=True, default=None)
+
+class UserCreate(UserBase):
+    ''' For User registration '''
+    password: str = Field(min_length=6)
+
 class Settings(BaseSettings):
     ''' Enviroment Settings '''
     DB_USER: str = "postgres"
