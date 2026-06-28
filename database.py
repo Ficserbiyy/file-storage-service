@@ -8,7 +8,7 @@ from typing import Final, AsyncGenerator
 
 
 engine: Final = create_async_engine(settings.DATABASE_URL, echo=True)
-redis_client: Final = redis_from_url(settings.DATABASE_URL, decode_response=True)
+redis_client: Final = redis_from_url(settings.REDIS_URL, decode_response=True)
 MINIO_BUCKET_NAME: Final[str] = settings.MINIO_BUCKET_NAME
 
 
@@ -30,7 +30,7 @@ async def create_db_and_tables():
 
 minio_client: Final = Minio(
     settings.MINIO_ENDPOINT,
-    access_key=settings.MINIO_ACCESS_KEY,
-    secret_key=settings.MINIO_PASSWORD,
+    access_key=settings.MINIO_ROOT_USER,
+    secret_key=settings.MINIO_ROOT_PASSWORD,
     secure=False,
 )

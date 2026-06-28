@@ -24,7 +24,9 @@ class UserFile(FileCreate, table=True):
     owner_id: int = Field(foreign_key="user.id")
     storage_key: str
     size: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
+    user: "User" = Relationship(back_populates="files")
     
 class DownloadUrl(SQLModel):
     url: str
@@ -40,9 +42,9 @@ class Settings(BaseSettings):
     DB_HOST: str = "db" 
     DB_NAME: str = "storage"
     REDIS_URL: str = 'redis://redis:6379'
-    MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "admin"
-    MINIO_PASSWORD: str = "password"
+    MINIO_ENDPOINT: str = "minio:9000"
+    MINIO_ROOT_USER: str = "admin"
+    MINIO_ROOT_PASSWORD: str = "password"
     MINIO_BUCKET_NAME: str = "user-files"
     SECRET_KEY: str = " "
     JWT_ALGORITHM: str = "HS256"

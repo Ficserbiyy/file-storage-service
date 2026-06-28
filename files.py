@@ -46,7 +46,7 @@ async def upload_file(
     session.add(db_file)
     await session.commit()
     await session.refresh(db_file)
-
+    return db_file
 
 
 @router.get("/{file_id}", response_model=DownloadUrl)
