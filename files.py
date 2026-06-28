@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from config import User, UserFile
+from config import User, UserFile, DownloadUrl
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME
 from auth import get_current_user
@@ -49,4 +49,24 @@ async def upload_file(
 
 
 
+@router.get("/{file_id}", response_model=DownloadUrl)
+async def get_single_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)    
+):
+    ''' Receive a signed URL by file id '''
+    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
+    result = await session.exec(statement)
+    db_file = result.one_or_none()
+    
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    url = minio_client.presigned_get_object(
+    MINIO_BUCKET_NAME,
+    db_file.storage_key,
+    expires=timedelta(minutes=10),
+    )
+    return DownloadUrl(url=url)
 
