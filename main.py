@@ -3,6 +3,8 @@ from database import engine, redis_client, minio_client, create_db_and_tables, M
 from contextlib import asynccontextmanager
 from asyncio import sleep
 from typing import Final
+from auth import router as auth_router
+from files import router as file_router
 
     
 @asynccontextmanager
@@ -30,6 +32,8 @@ async def lifespan(app: FastAPI):
 
 
 app: Final = FastAPI(title="File Storage", lifespan=lifespan)
+app.include_router(auth_router)
+app.include_router(file_router)
 
 
 

@@ -32,7 +32,7 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     email = decode_access_token(token)
     user = await get_user_by_email(session, email)
     
-    if not user:
+    if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User Not Found",

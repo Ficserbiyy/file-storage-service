@@ -26,6 +26,9 @@ class UserFile(FileCreate, table=True):
     size: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
+class DownloadUrl(SQLModel):
+    url: str
+
 class UserCreate(UserBase):
     ''' For User registration '''
     password: str = Field(min_length=6)
