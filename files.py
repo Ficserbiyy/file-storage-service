@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from config import User, UserFile, DownloadUrl
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME
@@ -50,7 +51,7 @@ async def upload_file(
 
 
 @router.get("/{file_id}", response_model=DownloadUrl)
-async def get_single_file(
+async def get_single_file_url(
     file_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)    
@@ -70,3 +71,25 @@ async def get_single_file(
     )
     return DownloadUrl(url=url)
 
+
+
+@router.get("/{file_id}/download")
+async def download_single_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)  
+):
+    ''' Actually download the file '''
+    
+    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
+    result = await session.exec(statement)
+    db_file = result.one_or_none()
+    
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        obj = minio_client.get_object(MINIO_BUCKET_NAME, db_file.storage_key)
+        return StreamingResponse(obj, media_type=db_file.content_type, headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'})
+    
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found in storage")
