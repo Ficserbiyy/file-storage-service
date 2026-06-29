@@ -93,3 +93,28 @@ async def download_single_file(
     
     except Exception:
         raise HTTPException(status_code=404, detail="File not found in storage")
+
+
+
+
+
+
+@router.delete("/{file_id}", status_code=200)
+async def delete_single_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session) 
+):
+    ''' Delete the user file by its id '''
+    
+    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
+    result = await session.exec(statement)
+    db_file = result.one_or_none()
+    
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    minio_client.remove_object(MINIO_BUCKET_NAME, db_file.storage_key)
+    await session.delete(db_file)
+    await session.commit()
+    return {"detail": "File successfully deleted"}
