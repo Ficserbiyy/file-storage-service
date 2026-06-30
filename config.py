@@ -15,11 +15,11 @@ class User(UserBase, table=True):
     hashed_password: str
     files: list["UserFile"] = Relationship(back_populates="user")
 
-class FileCreate(SQLModel):
+class BaseFile(SQLModel):
     filename: str
     content_type: str
-    
-class UserFile(FileCreate, table=True):
+
+class UserFile(BaseFile, table=True):
     id: int | None = Field(primary_key=True, default=None)
     owner_id: int = Field(foreign_key="user.id")
     storage_key: str
@@ -27,7 +27,13 @@ class UserFile(FileCreate, table=True):
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
     user: "User" = Relationship(back_populates="files")
-    
+
+class FileRead(BaseFile):
+    id: int
+    size: int
+    created_at: datetime
+    updated_at: datetime
+
 class DownloadUrl(SQLModel):
     url: str
 
@@ -58,6 +64,6 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}/{self.DB_NAME}"
-    
+
 
 settings: Final = Settings()
