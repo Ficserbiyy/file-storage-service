@@ -8,6 +8,10 @@ class UserBase(SQLModel):
     ''' For User creation '''
     email: str = Field(unique=True, index=True)
 
+class UserCreate(UserBase):
+    ''' For User registration '''
+    password: str = Field(min_length=6)
+
 class User(UserBase, table=True):
     ''' User model '''
     id: int | None = Field(primary_key=True, default=None)
@@ -15,31 +19,37 @@ class User(UserBase, table=True):
     hashed_password: str
     files: list["UserFile"] = Relationship(back_populates="user")
 
-class BaseFile(SQLModel):
-    filename: str
-    content_type: str
-
-class UserFile(BaseFile, table=True):
+class UserFile(SQLModel, table=True):
     id: int | None = Field(primary_key=True, default=None)
     owner_id: int = Field(foreign_key="user.id")
-    storage_key: str
-    size: int
+    filename: str
+    current_version: int = 1
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
+    deleted_at: datetime | None = None
     user: "User" = Relationship(back_populates="files")
+    versions: list["FileVersion"] = Relationship(back_populates="userfile")
 
-class FileRead(BaseFile):
-    id: int
+class FileVersion(SQLModel, table=True):
+    ''' Actual User File '''
+    id: int | None = Field(default=None, primary_key=True)
+    file_id: int = Field(foreign_key="userfile.id")
+    version: int
+    storage_key: str
     size: int
+    content_type: str
+    created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
+    userfile: UserFile | None = Relationship(back_populates="versions")
+
+class FileRead(SQLModel):
+    id: int
+    filename: str
+    current_version: int
     created_at: datetime
     updated_at: datetime
 
 class DownloadUrl(SQLModel):
     url: str
-
-class UserCreate(UserBase):
-    ''' For User registration '''
-    password: str = Field(min_length=6)
 
 class Settings(BaseSettings):
     ''' Enviroment Settings '''

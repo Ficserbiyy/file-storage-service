@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, Response, Req
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlmodel import select, col, and_, func
-from config import User, UserFile, FileRead, DownloadUrl
+from config import User, DownloadUrl, UserFile, FileRead, FileVersion
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME
 from auth import get_current_user
+from fileversions import get_current_file_version, get_user_file
 from io import BytesIO
 from uuid import uuid4
 from datetime import timedelta
@@ -19,7 +20,7 @@ router: Final = APIRouter(prefix="/files", tags=["Files"])
 
 
 
-@router.post("/upload", response_model=UserFile)
+@router.post("/upload", status_code=201)
 async def upload_file(
     file: UploadFile,
     current_user: User = Depends(get_current_user),
@@ -40,17 +41,27 @@ async def upload_file(
     part_size=10 * 1024 * 1024,
     )
     
+    
     db_file = UserFile(
     filename=file.filename or "unknown",
     owner_id=current_user.id,
+    )
+    session.add(db_file)
+    await session.commit()
+    await session.refresh(db_file)
+    assert db_file.id is not None, "File ID can not be None"
+    
+    
+    db_version = FileVersion(
+    file_id=db_file.id,
+    version=1,
     storage_key=storage_key,
     content_type=file.content_type or "application/octet-stream",
     size=size,
     )
-    
-    session.add(db_file)
+    session.add(db_version)
     await session.commit()
-    await session.refresh(db_file)
+    await session.refresh(db_version)
     return db_file
 
 
@@ -60,7 +71,6 @@ async def get_user_files(
     request: Request,
     response: Response,
     search_filename: str | None = None,
-    search_content_type: str | None = None,
     sort_by: str | None = None,
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
@@ -74,9 +84,6 @@ async def get_user_files(
     
     if search_filename:
         filters.append(col(UserFile.filename).ilike(f"%{search_filename}%"))
-
-    if search_content_type:
-        filters.append(col(UserFile.content_type).ilike(f"%{search_content_type}%"))
 
     if filters:
         base_statement = base_statement.where(and_(*filters))
@@ -126,22 +133,18 @@ async def get_user_files(
 
 
 @router.get("/{file_id}", response_model=DownloadUrl)
-async def get_single_file_url(
+async def get_file_signed_url(
     file_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)    
 ):
     ''' Receive a signed URL by file id '''
-    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
-    result = await session.exec(statement)
-    db_file = result.one_or_none()
+    db_file = await get_user_file(file_id, current_user, session)
+    current_version = await get_current_file_version(session, db_file)
     
-    if not db_file:
-        raise HTTPException(status_code=404, detail="File not found")
-        
     url = minio_client.presigned_get_object(
     MINIO_BUCKET_NAME,
-    db_file.storage_key,
+    current_version.storage_key,
     expires=timedelta(minutes=10),
     )
     return DownloadUrl(url=url)
@@ -155,26 +158,28 @@ async def download_single_file(
     session: AsyncSession = Depends(get_session)  
 ):
     ''' Actually download the file '''
+    db_file = await get_user_file(file_id, current_user, session)
+    current_version = await get_current_file_version(session, db_file)
     
-    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
-    result = await session.exec(statement)
-    db_file = result.one_or_none()
-    
-    if not db_file:
-        raise HTTPException(status_code=404, detail="File not found")
     try:
-        obj = minio_client.get_object(MINIO_BUCKET_NAME, db_file.storage_key)
-        return StreamingResponse(obj, media_type=db_file.content_type, headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'})
+        obj = minio_client.get_object(MINIO_BUCKET_NAME, current_version.storage_key)
+        return StreamingResponse(obj, media_type=current_version.content_type, headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'})
     
-    except Exception:
+    except Exception as e:
+        print(type(e), e)
         raise HTTPException(status_code=404, detail="File not found in storage")
 
 
 
+@router.put("/{file_id}")
 
 
 
-@router.delete("/{file_id}", status_code=200)
+@router.patch("/{file_id}")
+
+
+
+@router.delete("/{file_id}", status_code=204)
 async def delete_single_file(
     file_id: int,
     current_user: User = Depends(get_current_user),
@@ -182,14 +187,10 @@ async def delete_single_file(
 ):
     ''' Delete the user file by its id '''
     
-    statement = select(UserFile).where(UserFile.id == file_id, UserFile.owner_id == current_user.id)
-    result = await session.exec(statement)
-    db_file = result.one_or_none()
+    db_file = await get_user_file(file_id, current_user, session)
+    current_version = await get_current_file_version(session, db_file)
+    minio_client.remove_object(MINIO_BUCKET_NAME, current_version.storage_key)
     
-    if not db_file:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    minio_client.remove_object(MINIO_BUCKET_NAME, db_file.storage_key)
     await session.delete(db_file)
     await session.commit()
-    return {"detail": "File successfully deleted"}
+    return

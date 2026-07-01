@@ -13,3 +13,8 @@ dependencies = [
     "redis>=8.0.1",
     "sqlmodel>=0.0.39",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.20",
+]
