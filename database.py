@@ -8,7 +8,7 @@ from typing import Final, AsyncGenerator
 
 
 engine: Final = create_async_engine(settings.DATABASE_URL, echo=True)
-redis_client: Final = redis_from_url(settings.REDIS_URL, decode_response=True)
+redis_client: Final = redis_from_url(settings.REDIS_URL, decode_responses=True)
 MINIO_BUCKET_NAME: Final[str] = settings.MINIO_BUCKET_NAME
 
 

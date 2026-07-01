@@ -13,6 +13,7 @@ async def get_user_file(
     statement = select(UserFile).where(
         UserFile.id == file_id,
         UserFile.owner_id == current_user.id,
+        UserFile.deleted_at is None,
     )
     result = await session.exec(statement)
     db_file = result.one_or_none()

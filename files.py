@@ -79,7 +79,7 @@ async def get_user_files(
 ):
     ''' Receive all files belonging to the current user '''
     
-    base_statement = select(UserFile).where(UserFile.owner_id == current_user.id)
+    base_statement = select(UserFile).where(UserFile.owner_id == current_user.id, UserFile.deleted_at is None)
     filters = []
     
     if search_filename:
@@ -243,7 +243,7 @@ async def update_user_file(
 
 
 
-@router.delete("/{file_id}", status_code=204)
+@router.delete("/{file_id}", status_code=200)
 async def delete_single_file(
     file_id: int,
     current_user: User = Depends(get_current_user),
@@ -255,7 +255,9 @@ async def delete_single_file(
     current_version = await get_current_file_version(session, db_file)
     minio_client.remove_object(MINIO_BUCKET_NAME, current_version.storage_key)
     
-    await session.delete(db_file)
+    db_file.deleted_at = NOW
     await session.commit()
+    await session.refresh(db_file)
+    
     await redis_client.delete(f"file_versions:user:{current_user.id}:file:{file_id}")
-    return
+    return {"detail": "File moved to trash"}
