@@ -9,7 +9,7 @@ from auth import get_current_user
 from fileversions import get_current_file_version, get_user_file
 from io import BytesIO
 from uuid import uuid4
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from json import dumps
 from hashlib import sha256 as hashlib_sha256
 from math import ceil
@@ -17,7 +17,7 @@ from typing import Final
 
 
 router: Final = APIRouter(prefix="/files", tags=["Files"])
-
+NOW: Final = datetime.now(timezone.utc)
 
 
 @router.post("/upload", status_code=201)
@@ -171,11 +171,49 @@ async def download_single_file(
 
 
 
-@router.put("/{file_id}")
-
-
-
-@router.patch("/{file_id}")
+@router.put("/{file_id}", response_model=FileVersion)
+async def update_user_file(
+    file_id: int,
+    file_in: UploadFile,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    ''' Update the user file '''
+    db_file = await get_user_file(file_id, current_user, session)
+    new_version = db_file.current_version + 1
+    
+    contents = await file_in.read()
+    size = len(contents)
+    assert db_file.id is not None, "File ID can not be None"
+    
+    storage_key = (
+    f"users/{current_user.id}/"
+    f"{db_file.id}/"
+    f"v{new_version}-"
+    f"{uuid4()}-{file_in.filename}"
+    )
+    minio_client.put_object(
+    bucket_name=MINIO_BUCKET_NAME,
+    object_name=storage_key,
+    data=BytesIO(contents),
+    length=size,
+    part_size=10 * 1024 * 1024,
+    )
+    
+    db_version = FileVersion(
+    file_id=db_file.id,
+    version=new_version,
+    storage_key=storage_key,
+    content_type=file_in.content_type or "application/octet-stream",
+    size=size,
+    )
+    db_file.current_version = new_version
+    db_file.updated_at = NOW
+    
+    session.add(db_version)
+    await session.commit()
+    await session.refresh(db_version)
+    return db_version
 
 
 

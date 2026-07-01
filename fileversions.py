@@ -33,5 +33,4 @@ async def get_current_file_version(
     )
 
     result = await session.exec(statement)
-    version = result.one()
-    return version
+    return result.one()
