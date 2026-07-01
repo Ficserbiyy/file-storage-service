@@ -4,13 +4,13 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select, col, and_, func
 from config import User, DownloadUrl, UserFile, FileRead, FileVersion
 from sqlmodel.ext.asyncio.session import AsyncSession
-from database import get_session, minio_client, MINIO_BUCKET_NAME
+from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client
 from auth import get_current_user
 from fileversions import get_current_file_version, get_user_file
 from io import BytesIO
 from uuid import uuid4
 from datetime import timedelta, datetime, timezone
-from json import dumps
+from json import dumps, loads as json_loads
 from hashlib import sha256 as hashlib_sha256
 from math import ceil
 from typing import Final
@@ -132,6 +132,30 @@ async def get_user_files(
 
 
 
+@router.get("/{file_id}/versions")
+async def get_file_versions(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    ''' Get all file versions '''
+    
+    cache_key = f"file_versions:user:{current_user.id}:file:{file_id}"
+    cached_data = await redis_client.get(cache_key)
+    if cached_data:
+        return json_loads(cached_data)
+    
+    db_file = await get_user_file(file_id, current_user, session)
+    statement = select(FileVersion).where(FileVersion.file_id == db_file.id)  
+    result = await session.exec(statement)
+    versions = result.all()
+    
+    response = [FileVersion.model_validate(version) for version in versions]
+    await redis_client.set(cache_key, dumps(jsonable_encoder(response)), ex=600)
+    return response
+
+
+
 @router.get("/{file_id}", response_model=DownloadUrl)
 async def get_file_signed_url(
     file_id: int,
@@ -213,6 +237,8 @@ async def update_user_file(
     session.add(db_version)
     await session.commit()
     await session.refresh(db_version)
+    
+    await redis_client.delete(f"file_versions:user:{current_user.id}:file:{file_id}")
     return db_version
 
 
@@ -231,4 +257,5 @@ async def delete_single_file(
     
     await session.delete(db_file)
     await session.commit()
+    await redis_client.delete(f"file_versions:user:{current_user.id}:file:{file_id}")
     return
