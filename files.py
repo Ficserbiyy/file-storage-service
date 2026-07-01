@@ -6,7 +6,7 @@ from config import User, DownloadUrl, UserFile, FileRead, FileVersion
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client
 from auth import get_current_user
-from fileversions import get_current_file_version, get_user_file
+from fileversions import get_current_file_version, get_user_file, get_deleted_file
 from io import BytesIO
 from uuid import uuid4
 from datetime import timedelta, datetime, timezone
@@ -252,12 +252,47 @@ async def delete_single_file(
     ''' Delete the user file by its id '''
     
     db_file = await get_user_file(file_id, current_user, session)
-    current_version = await get_current_file_version(session, db_file)
-    minio_client.remove_object(MINIO_BUCKET_NAME, current_version.storage_key)
-    
     db_file.deleted_at = NOW
     await session.commit()
     await session.refresh(db_file)
     
     await redis_client.delete(f"file_versions:user:{current_user.id}:file:{file_id}")
     return {"detail": "File moved to trash"}
+
+
+
+@router.get("/trash", status_code=200)
+async def get_trashed_files(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    ''' Receive trashed files '''
+    
+    cache_key = f"trashed_files:user:{current_user.id}"
+    cached_data = await redis_client.get(cache_key)
+    if cached_data:
+        return json_loads(cached_data)
+    
+    statement = select(UserFile).where(UserFile.owner_id == current_user.id, UserFile.deleted_at is not None)
+    result = await session.exec(statement)
+    files = result.all()
+    
+    await redis_client.set(cache_key, dumps(jsonable_encoder(files)), ex=600)
+    return files
+
+
+
+@router.post("/{file_id}/restore", status_code=200)
+async def restore_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    ''' Restore trashed file '''
+
+    db_file = await get_deleted_file(file_id, current_user, session)
+    db_file.deleted_at = None
+    await session.commit()
+    
+    await redis_client.delete(f"trashed_files:user:{current_user.id}")
+    return {"detail": "File restored"}
