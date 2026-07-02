@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select, col, and_, func
 from config import User, DownloadUrl, UserFile, FileRead, FileVersion, SharedLink, ShareFileCreate
 from sqlmodel.ext.asyncio.session import AsyncSession
-from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client
+from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client, MAX_STORAGE_BYTES
 from auth import get_current_user
 from io import BytesIO
 from uuid import uuid4
@@ -14,7 +14,7 @@ from hashlib import sha256 as hashlib_sha256
 from secrets import token_urlsafe
 from math import ceil
 from typing import Final
-from fileversions import (get_file_by_id, get_file_by_url, get_deleted_file,
+from fileversions import (get_file_by_id, get_file_by_url, get_deleted_file, get_used_storage,
     get_current_file_version, get_certain_file_version, set_api_rate_limit, validate_storage_quota)
 
 
@@ -65,6 +65,26 @@ async def upload_file(
     await session.refresh(db_file)
     await session.refresh(db_version)
     return db_file
+
+
+
+@router.get("/storage", status_code=200)
+async def get_storage_statistics(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    ''' Receive user storage statistics '''
+    
+    used_bytes = await get_used_storage(current_user, session)
+    response = {
+        "used_bytes": used_bytes,
+        "used_mb": round(used_bytes / (1024 * 1024), 2),
+        "quota_bytes": MAX_STORAGE_BYTES,
+        "quota_gb": round(MAX_STORAGE_BYTES / (1024 ** 3), 2),
+        "used_percent": round((used_bytes / MAX_STORAGE_BYTES) * 100, 2),
+        "remaining_bytes": MAX_STORAGE_BYTES - used_bytes
+    }
+    return response
 
 
 
