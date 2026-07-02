@@ -15,7 +15,7 @@ from secrets import token_urlsafe
 from math import ceil
 from typing import Final
 from fileversions import (get_file_by_id, get_file_by_url, get_deleted_file,
-    get_current_file_version, get_certain_file_version, set_api_rate_limit)
+    get_current_file_version, get_certain_file_version, set_api_rate_limit, validate_storage_quota)
 
 
 router: Final = APIRouter(prefix="/files", tags=["Files"])
@@ -33,6 +33,7 @@ async def upload_file(
     storage_key = (f"users/{current_user.id}/{uuid4()}-{file.filename}")
     contents = await file.read()
     size = len(contents)
+    await validate_storage_quota(size, current_user, session)
     
     minio_client.put_object(
     bucket_name=MINIO_BUCKET_NAME,
@@ -227,7 +228,7 @@ async def get_trashed_files(
 
 
 @router.get("/{file_id}/versions")
-async def get_file_versions(
+async def get_all_file_versions(
     file_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
