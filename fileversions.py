@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from config import UserFile, FileVersion, User
 
 
-async def get_user_file(
+async def get_file_by_id(
     file_id: int,
     current_user: User,
     session: AsyncSession,
@@ -19,7 +19,10 @@ async def get_user_file(
     db_file = result.one_or_none()
     
     if not db_file:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(
+            status_code=404,
+            detail="File not found"
+        )
     return db_file
 
 async def get_current_file_version(
@@ -47,5 +50,26 @@ async def get_deleted_file(
     result = await session.exec(statement)
     db_file = result.one_or_none()
     if not db_file:
-        raise HTTPException(status_code=404, detail="File not found in trash")
+        raise HTTPException(
+            status_code=404,
+            detail="File not found in trash"
+        )
     return db_file
+
+async def get_certain_file_version(
+    file_id: int,
+    version_in: int,
+    session: AsyncSession
+) -> FileVersion:
+    statement = select(FileVersion).where(
+        FileVersion.file_id == file_id,
+        FileVersion.version == version_in
+    )
+    result = await session.exec(statement)
+    file_version = result.one_or_none()
+    if file_version is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Version not found"
+        )
+    return file_version

@@ -6,7 +6,7 @@ from config import User, DownloadUrl, UserFile, FileRead, FileVersion
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client
 from auth import get_current_user
-from fileversions import get_current_file_version, get_user_file, get_deleted_file
+from fileversions import get_file_by_id, get_deleted_file, get_current_file_version, get_certain_file_version
 from io import BytesIO
 from uuid import uuid4
 from datetime import timedelta, datetime, timezone
@@ -165,7 +165,7 @@ async def get_file_versions(
     if cached_data:
         return json_loads(cached_data)
     
-    db_file = await get_user_file(file_id, current_user, session)
+    db_file = await get_file_by_id(file_id, current_user, session)
     statement = select(FileVersion).where(FileVersion.file_id == db_file.id)  
     result = await session.exec(statement)
     versions = result.all()
@@ -183,7 +183,7 @@ async def get_file_signed_url(
     session: AsyncSession = Depends(get_session)    
 ):
     ''' Receive a signed URL by file id '''
-    db_file = await get_user_file(file_id, current_user, session)
+    db_file = await get_file_by_id(file_id, current_user, session)
     current_version = await get_current_file_version(session, db_file)
     
     url = minio_client.presigned_get_object(
@@ -202,13 +202,41 @@ async def download_single_file(
     session: AsyncSession = Depends(get_session)  
 ):
     ''' Actually download the file '''
-    db_file = await get_user_file(file_id, current_user, session)
+    db_file = await get_file_by_id(file_id, current_user, session)
     current_version = await get_current_file_version(session, db_file)
     
     try:
         obj = minio_client.get_object(MINIO_BUCKET_NAME, current_version.storage_key)
-        return StreamingResponse(obj, media_type=current_version.content_type, headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'})
+        return StreamingResponse(
+            obj,
+            media_type=current_version.content_type,
+            headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'}
+        )
+    except Exception as e:
+        print(type(e), e)
+        raise HTTPException(status_code=404, detail="File not found in storage")
+
+
+
+@router.get("/{file_id}/versions/{version_in}/download")
+async def download_old_version(
+    file_id: int,
+    version_in: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session) 
+):
+    ''' Download certain versions of the file '''
     
+    db_file = await get_file_by_id(file_id, current_user, session)
+    old_file_version = await get_certain_file_version(file_id, version_in, session)
+    
+    try:
+        obj = minio_client.get_object(MINIO_BUCKET_NAME, old_file_version.storage_key)
+        return StreamingResponse(
+            obj,
+            media_type=old_file_version.content_type,
+            headers={"Content-Disposition": f'attachment; filename="{db_file.filename}"'}
+        )
     except Exception as e:
         print(type(e), e)
         raise HTTPException(status_code=404, detail="File not found in storage")
@@ -223,7 +251,7 @@ async def update_user_file(
     session: AsyncSession = Depends(get_session)
 ):
     ''' Update the user file '''
-    db_file = await get_user_file(file_id, current_user, session)
+    db_file = await get_file_by_id(file_id, current_user, session)
     new_version = db_file.current_version + 1
     
     contents = await file_in.read()
@@ -271,7 +299,7 @@ async def delete_single_file(
 ):
     ''' Delete the user file by its id '''
     
-    db_file = await get_user_file(file_id, current_user, session)
+    db_file = await get_file_by_id(file_id, current_user, session)
     db_file.deleted_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(db_file)
