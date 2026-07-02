@@ -17,7 +17,6 @@ from typing import Final
 
 
 router: Final = APIRouter(prefix="/files", tags=["Files"])
-NOW: Final = datetime.now(timezone.utc)
 
 
 @router.post("/upload", status_code=201)
@@ -47,8 +46,7 @@ async def upload_file(
     owner_id=current_user.id,
     )
     session.add(db_file)
-    await session.commit()
-    await session.refresh(db_file)
+    await session.flush()
     assert db_file.id is not None, "File ID can not be None"
     
     
@@ -61,6 +59,7 @@ async def upload_file(
     )
     session.add(db_version)
     await session.commit()
+    await session.refresh(db_file)
     await session.refresh(db_version)
     return db_file
 
@@ -79,7 +78,7 @@ async def get_user_files(
 ):
     ''' Receive all files belonging to the current user '''
     
-    base_statement = select(UserFile).where(UserFile.owner_id == current_user.id, UserFile.deleted_at is None)
+    base_statement = select(UserFile).where(UserFile.owner_id == current_user.id, col(UserFile.deleted_at).is_(None),)
     filters = []
     
     if search_filename:
@@ -129,6 +128,27 @@ async def get_user_files(
     response.headers["ETag"] = generated_etag
     response.headers["Cache-Control"] = "no-cache"
     return result_data    
+
+
+
+@router.get("/trash", status_code=200)
+async def get_trashed_files(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    ''' Receive trashed files '''
+    
+    cache_key = f"trashed_files:user:{current_user.id}"
+    cached_data = await redis_client.get(cache_key)
+    if cached_data:
+        return json_loads(cached_data)
+    
+    statement = select(UserFile).where(UserFile.owner_id == current_user.id, col(UserFile.deleted_at).is_not(None))
+    result = await session.exec(statement)
+    files = result.all()
+    
+    await redis_client.set(cache_key, dumps(jsonable_encoder(files)), ex=600)
+    return files
 
 
 
@@ -232,7 +252,7 @@ async def update_user_file(
     size=size,
     )
     db_file.current_version = new_version
-    db_file.updated_at = NOW
+    db_file.updated_at = datetime.now(timezone.utc)
     
     session.add(db_version)
     await session.commit()
@@ -252,33 +272,12 @@ async def delete_single_file(
     ''' Delete the user file by its id '''
     
     db_file = await get_user_file(file_id, current_user, session)
-    db_file.deleted_at = NOW
+    db_file.deleted_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(db_file)
     
     await redis_client.delete(f"file_versions:user:{current_user.id}:file:{file_id}")
     return {"detail": "File moved to trash"}
-
-
-
-@router.get("/trash", status_code=200)
-async def get_trashed_files(
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-):
-    ''' Receive trashed files '''
-    
-    cache_key = f"trashed_files:user:{current_user.id}"
-    cached_data = await redis_client.get(cache_key)
-    if cached_data:
-        return json_loads(cached_data)
-    
-    statement = select(UserFile).where(UserFile.owner_id == current_user.id, UserFile.deleted_at is not None)
-    result = await session.exec(statement)
-    files = result.all()
-    
-    await redis_client.set(cache_key, dumps(jsonable_encoder(files)), ex=600)
-    return files
 
 
 

@@ -26,7 +26,7 @@ class UserFile(SQLModel, table=True):
     current_version: int = 1
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
-    deleted_at: datetime | None = None
+    deleted_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
     user: "User" = Relationship(back_populates="files")
     versions: list["FileVersion"] = Relationship(back_populates="userfile")
 

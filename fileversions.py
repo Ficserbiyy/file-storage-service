@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlmodel import select
+from sqlmodel import select, col
 from sqlmodel.ext.asyncio.session import AsyncSession
 from config import UserFile, FileVersion, User
 
@@ -13,7 +13,7 @@ async def get_user_file(
     statement = select(UserFile).where(
         UserFile.id == file_id,
         UserFile.owner_id == current_user.id,
-        UserFile.deleted_at is None,
+        col(UserFile.deleted_at).is_(None),
     )
     result = await session.exec(statement)
     db_file = result.one_or_none()
@@ -42,7 +42,7 @@ async def get_deleted_file(
     statement = select(UserFile).where(
         UserFile.id == file_id,
         UserFile.owner_id == current_user.id,
-        UserFile.deleted_at is not None,
+        col(UserFile.deleted_at).is_not(None),
     )
     result = await session.exec(statement)
     db_file = result.one_or_none()
