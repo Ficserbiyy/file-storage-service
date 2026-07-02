@@ -51,6 +51,20 @@ class FileRead(SQLModel):
 class DownloadUrl(SQLModel):
     url: str
 
+class ShareFileCreate(SQLModel):
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+    max_downloads: int | None = Field(default=None, ge=1, le=1000)
+
+class SharedLink(SQLModel, table=True):
+    id: int | None = Field(primary_key=True, default=None)
+    file_id: int = Field(foreign_key="userfile.id", unique=True)
+    token: str = Field(index=True, unique=True)
+    created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False), default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime | None = Field(sa_column=Column(DateTime(timezone=True), nullable=True))
+    download_count: int = 0
+    max_downloads: int | None = None
+    file: "UserFile" = Relationship()
+
 class Settings(BaseSettings):
     ''' Enviroment Settings '''
     DB_USER: str = "postgres"

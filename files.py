@@ -2,18 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, Response, Req
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlmodel import select, col, and_, func
-from config import User, DownloadUrl, UserFile, FileRead, FileVersion
+from config import User, DownloadUrl, UserFile, FileRead, FileVersion, SharedLink, ShareFileCreate
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session, minio_client, MINIO_BUCKET_NAME, redis_client
 from auth import get_current_user
-from fileversions import get_file_by_id, get_deleted_file, get_current_file_version, get_certain_file_version
 from io import BytesIO
 from uuid import uuid4
 from datetime import timedelta, datetime, timezone
 from json import dumps, loads as json_loads
 from hashlib import sha256 as hashlib_sha256
+from secrets import token_urlsafe
 from math import ceil
 from typing import Final
+from fileversions import (get_file_by_id, get_file_by_url, get_deleted_file,
+    get_current_file_version, get_certain_file_version, set_api_rate_limit)
 
 
 router: Final = APIRouter(prefix="/files", tags=["Files"])
@@ -62,6 +64,78 @@ async def upload_file(
     await session.refresh(db_file)
     await session.refresh(db_version)
     return db_file
+
+
+
+@router.post("/{file_id}/share")
+async def share_file(
+    file_id: int,
+    share_in: ShareFileCreate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)    
+):
+    ''' Create URL for sharing a file '''
+    
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    limit_key = f"limit:shortcodes:{client_ip}"
+    await set_api_rate_limit(limit_key)
+
+
+    statement = select(SharedLink).where(SharedLink.file_id == file_id)
+    result = await session.exec(statement)
+    existing_link = result.one_or_none()
+    if existing_link:
+        return {"share_url":f"http://localhost:8000/files/shared/{existing_link.token}"}
+    
+    db_file = await get_file_by_id(file_id, current_user, session)
+    token = token_urlsafe(32)
+    assert db_file.id is not None 
+    expires_at = None
+
+    if share_in.expires_in_days is not None:
+        expires_at = (
+            datetime.now(timezone.utc)
+            + timedelta(days=share_in.expires_in_days)
+        )
+
+    shared_link = SharedLink(
+        file_id=db_file.id,
+        token=token,
+        expires_at=expires_at,
+        max_downloads=share_in.max_downloads
+    )
+    session.add(shared_link)
+    await session.commit()
+    await session.refresh(shared_link)
+    return {"share_url": f"http://localhost:8000/files/shared/{token}"}
+
+
+
+@router.get("/shared/{token}")
+async def get_shared_file(
+    token: str,
+    session: AsyncSession = Depends(get_session),
+):
+    ''' Receive shared file using the URL '''
+
+    shared_file = await get_file_by_url(token, session)
+    
+    if shared_file.expires_at is not None and shared_file.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="URL expired")
+    if shared_file.max_downloads is not None and shared_file.download_count >= shared_file.max_downloads:
+        raise HTTPException(status_code=400, detail="Download limit exceeded")
+    
+    current_file_version = await get_current_file_version(session, shared_file.file)
+    shared_file.download_count += 1
+    await session.commit()
+
+    obj = minio_client.get_object(MINIO_BUCKET_NAME, current_file_version.storage_key)
+    return StreamingResponse(
+        obj,
+        media_type=current_file_version.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{shared_file.file.filename}"'}
+    )
 
 
 
